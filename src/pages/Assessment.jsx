@@ -40,7 +40,7 @@ export default function Assessment() {
         setError('')
 
         const response = await fetch(
-          'http://localhost:5000/api/generate-assessment',
+          "https://talentrush.onrender.com/api/generate-assessment",
           {
             method: 'POST',
             headers: {
