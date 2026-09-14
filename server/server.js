@@ -33,37 +33,30 @@ app.post('/api/generate-assessment', async (req, res) => {
     const prompt = `
 You are the AI assessment engine for TalentRush.
 
-TalentRush is a platform that discovers a person's real abilities through personalized assessments and skill-proof challenges.
+TalentRush discovers a person's abilities through personalized assessments and practical skill-proof challenges.
 
 USER PROFILE:
 ${JSON.stringify(profile, null, 2)}
 
-Create a completely personalized assessment for this specific user.
+Create a completely personalized assessment for this user.
 
 IMPORTANT RULES:
 
 1. Generate NEW questions dynamically.
 2. Do NOT simply select questions from a fixed question bank.
 3. Use the user's skills, interests, education, career goal, experience level and preferred opportunity type.
-4. Do NOT assume that a skill listed in the profile is actually proven.
-5. Test whether the user can actually reason, solve problems and make decisions.
+4. Do NOT assume that a skill listed in the profile is proven.
+5. Test actual reasoning, problem solving, decision making, creativity and practical thinking.
 6. Include questions related to the user's strongest interests.
-7. Include some discovery questions that can reveal hidden strengths.
-8. If the user has multiple interests, create cross-domain questions.
-9. Questions can combine areas such as:
-   - Programming + Problem Solving
-   - Robotics + IT
-   - AI + Programming
-   - Design + Technology
-   - Photography + Storytelling
-   - Video Editing + Communication
-   - Music + Creativity
-   - Writing + Presentation
-   - Any other meaningful combination based on the profile.
-10. Do not make every question about the same skill.
-11. The assessment should test reasoning, creativity, technical thinking, communication, decision making and practical thinking when appropriate.
-12. Make questions appropriate for the user's experience level.
-13. Make the questions different for different users.
+7. Include discovery questions that can reveal hidden strengths.
+8. If the user has multiple interests, create meaningful cross-domain questions.
+9. Do not make every question about the same skill.
+10. Questions must be appropriate for the user's experience level.
+11. Make the questions different for different user profiles.
+12. Every question must have exactly ONE objectively correct answer.
+13. Do not create questions where two or more options could reasonably be correct.
+14. The correct answer must be based on the question itself, not on the user's profile.
+15. The explanation must clearly explain why the correct answer is correct.
 
 Allowed talent tags:
 design
@@ -93,6 +86,7 @@ visual-thinking
 technical-thinking
 decision-making
 teamwork
+sports
 
 Generate exactly 10 multiple-choice questions.
 
@@ -101,16 +95,29 @@ Each question must contain:
 - id
 - question
 - options
+- correctOption
+- explanation
 - skills
 - difficulty
 
 Each question must have exactly 4 options.
 
 Each option must contain:
+
 - text
 - tags
 
-Difficulty must be one of:
+The correctOption must be the ZERO-BASED option number:
+
+0 = first option
+1 = second option
+2 = third option
+3 = fourth option
+
+The explanation must explain why the correct option is correct.
+
+Difficulty must be exactly one of:
+
 Easy
 Medium
 Hard
@@ -131,71 +138,33 @@ The JSON structure must be exactly:
         },
         {
           "text": "Option 2",
-          "tags": ["design"]
+          "tags": ["problem-solving"]
         },
         {
           "text": "Option 3",
-          "tags": ["writing"]
+          "tags": ["coding"]
         },
         {
           "text": "Option 4",
-          "tags": ["problem-solving"]
+          "tags": ["logical-thinking"]
         }
       ],
-      "skills": ["programming", "problem-solving"],
+      "correctOption": 0,
+      "explanation": "Explanation of why the first option is correct.",
+      "skills": ["coding", "problem-solving"],
       "difficulty": "Medium"
     }
   ]
 }
 `
 
-    let response
-
-const models = [
-  'gemini-3.6-flash',
-  'gemini-3.1-flash-lite',
-]
-
-for (const model of models) {
-  try {
-    console.log(`Trying Gemini model: ${model}`)
-
-    response = await ai.models.generateContent({
-      model,
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
       },
     })
-
-    console.log(`Gemini model succeeded: ${model}`)
-    break
-  } catch (error) {
-    console.error(
-      `Gemini model failed: ${model}`,
-      error.message
-    )
-
-    const is503 =
-      error?.status === 503 ||
-      error?.code === 503 ||
-      error?.message?.includes('503') ||
-      error?.message?.includes('high demand')
-
-    if (!is503) {
-      throw error
-    }
-
-    console.log(`Trying next Gemini model...`)
-  }
-}
-
-if (!response) {
-  return res.status(503).json({
-    error:
-      'Gemini is temporarily unavailable. Please try again in a moment.',
-  })
-}
 
     const text = response.text
 
@@ -227,6 +196,37 @@ if (!response) {
       })
     }
 
+    // Validate every question before sending it to the frontend.
+    for (const question of assessment.questions) {
+      if (
+        !question.id ||
+        !question.question ||
+        !Array.isArray(question.options) ||
+        question.options.length !== 4 ||
+        !Number.isInteger(question.correctOption) ||
+        question.correctOption < 0 ||
+        question.correctOption > 3 ||
+        !question.explanation ||
+        !Array.isArray(question.skills) ||
+        !question.difficulty
+      ) {
+        return res.status(500).json({
+          error: 'Gemini returned an invalid question structure',
+        })
+      }
+
+      for (const option of question.options) {
+        if (
+          !option.text ||
+          !Array.isArray(option.tags)
+        ) {
+          return res.status(500).json({
+            error: 'Gemini returned an invalid option structure',
+          })
+        }
+      }
+    }
+
     res.json({
       success: true,
       assessment,
@@ -249,7 +249,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   )
 })
 
-server.on('error', (error) => {
+server.on('error', error => {
   console.error('Server error:', error)
 })
 
